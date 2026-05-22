@@ -1,0 +1,742 @@
+---
+title: "Business Analytics aplicado a datos bancarios"
+author: "Nombre del estudiante"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    theme: readable
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+# ============================================================
+# 0. Paquetes
+# ============================================================
+
+packages <- c(
+  "tidyverse", "janitor", "skimr", "GGally",
+  "tidymodels", "rpart.plot", "ranger", "kernlab",
+  "cluster", "factoextra", "FactoMineR",
+  "arules", "arulesViz", "scales", "vip", "pROC"
+)
+
+missing <- setdiff(packages, rownames(installed.packages()))
+if (length(missing) > 0) install.packages(missing)
+
+invisible(lapply(packages, library, character.only = TRUE))
+
+theme_set(theme_minimal())
+set.seed(123)
+```
+
+# 1. Introducción y objetivo de negocio
+
+Este proyecto analiza una base de datos de campañas de marketing bancario. Cada fila representa un cliente contactado por el banco, junto con características personales, financieras y de la campaña. La variable objetivo es `deposit`, que indica si el cliente contrató o no un depósito.
+
+Desde el punto de vista de Business Analytics, el objetivo no es únicamente construir un modelo predictivo, sino entender qué información permite mejorar la decisión de negocio: **priorizar clientes con mayor probabilidad de contratar un depósito en futuras campañas comerciales**.
+
+El trabajo se estructura siguiendo la metodología CRISP-DM:
+
+1. Comprensión del negocio.
+2. Comprensión de los datos.
+3. Preparación de los datos.
+4. Modelado.
+5. Evaluación.
+6. Conclusiones y recomendaciones de negocio.
+
+# 2. Carga y comprensión inicial de los datos
+
+```{r load-data}
+# Cambiar la ruta si el CSV está en otra carpeta.
+bank_raw <- read_csv("bank 2.csv", show_col_types = FALSE) |> 
+  clean_names()
+
+bank <- bank_raw |>
+  mutate(
+    across(where(is.character), as.factor),
+    deposit = factor(deposit, levels = c("no", "yes"))
+  )
+
+glimpse(bank)
+```
+
+```{r basic-quality}
+# Dimensión del dataset
+cat("Filas:", nrow(bank), "\n")
+cat("Columnas:", ncol(bank), "\n")
+
+# Valores perdidos
+bank |> 
+  summarise(across(everything(), ~sum(is.na(.)))) |> 
+  pivot_longer(everything(), names_to = "variable", values_to = "missing") |> 
+  arrange(desc(missing))
+
+# Distribución de la variable objetivo
+bank |> 
+  count(deposit) |> 
+  mutate(prop = n / sum(n))
+```
+
+**Comentario inicial.** El dataset contiene variables numéricas y categóricas. No aparecen valores `NA`, pero sí existen categorías como `unknown` y valores especiales como `pdays = -1`, que indican que el cliente no había sido contactado previamente. Estos casos se tratarán explícitamente en la preparación de datos.
+
+# 3. Análisis descriptivo completo
+
+## 3.1 Variables numéricas
+
+```{r numeric-summary}
+num_vars <- bank |> select(where(is.numeric)) |> names()
+cat("Variables numéricas:", paste(num_vars, collapse = ", "))
+
+bank |> 
+  select(all_of(num_vars)) |> 
+  skimr::skim()
+```
+
+```{r numeric-histograms, fig.width=10, fig.height=8}
+bank |> 
+  select(all_of(num_vars)) |> 
+  pivot_longer(everything(), names_to = "variable", values_to = "value") |> 
+  ggplot(aes(value)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+  facet_wrap(~ variable, scales = "free") +
+  labs(title = "Distribución de variables numéricas", x = NULL, y = "Frecuencia")
+```
+
+```{r numeric-by-target, fig.width=10, fig.height=8}
+bank |> 
+  pivot_longer(cols = all_of(num_vars), names_to = "variable", values_to = "value") |> 
+  ggplot(aes(deposit, value, fill = deposit)) +
+  geom_boxplot(alpha = 0.75, outlier.alpha = 0.25) +
+  facet_wrap(~ variable, scales = "free_y") +
+  labs(title = "Variables numéricas según contratación de depósito", x = "Deposit", y = NULL) +
+  theme(legend.position = "none")
+```
+
+**Interpretación esperada.** Conviene prestar especial atención a `duration`, `balance`, `campaign`, `pdays` y `previous`. La variable `duration` suele tener una relación muy fuerte con `deposit`, pero tiene una limitación de negocio: antes de realizar la llamada no se conoce la duración de la conversación.
+
+## 3.2 Variables categóricas
+
+```{r categorical-summary}
+cat_vars <- bank |> select(where(is.factor)) |> names()
+cat("Variables categóricas:", paste(cat_vars, collapse = ", "))
+
+cat_summary <- bank |> 
+  select(all_of(cat_vars)) |> 
+  pivot_longer(everything(), names_to = "variable", values_to = "category") |> 
+  count(variable, category, sort = TRUE) |> 
+  group_by(variable) |> 
+  mutate(prop = n / sum(n)) |> 
+  ungroup()
+
+cat_summary
+```
+
+```{r categorical-plots, fig.width=11, fig.height=10}
+cat_summary |> 
+  filter(variable != "deposit") |> 
+  ggplot(aes(fct_reorder(category, n), n, fill = variable)) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() +
+  facet_wrap(~ variable, scales = "free") +
+  labs(title = "Frecuencias de variables categóricas", x = NULL, y = "Frecuencia")
+```
+
+## 3.3 Relación entre variables categóricas y `deposit`
+
+```{r categorical-target, fig.width=11, fig.height=10}
+bank |> 
+  select(all_of(setdiff(cat_vars, "deposit")), deposit) |> 
+  pivot_longer(cols = -deposit, names_to = "variable", values_to = "category") |> 
+  count(variable, category, deposit) |> 
+  group_by(variable, category) |> 
+  mutate(prop = n / sum(n)) |> 
+  ungroup() |> 
+  ggplot(aes(fct_reorder(category, prop), prop, fill = deposit)) +
+  geom_col(position = "fill") +
+  coord_flip() +
+  facet_wrap(~ variable, scales = "free_y") +
+  scale_y_continuous(labels = percent_format()) +
+  labs(
+    title = "Proporción de contratación por categorías",
+    x = NULL,
+    y = "Proporción"
+  )
+```
+
+**Interpretación esperada.** Esta sección permite detectar perfiles o situaciones de campaña asociadas a mayor contratación. Variables como `poutcome`, `contact`, `housing`, `loan`, `job` o `month` pueden aportar diferencias relevantes.
+
+# 4. Preparación de datos
+
+```{r data-preparation}
+bank_prep <- bank |>
+  mutate(
+    # pdays = -1 indica que el cliente no fue contactado previamente.
+    previous_contacted = if_else(pdays == -1, "no", "yes"),
+    previous_contacted = factor(previous_contacted),
+    pdays_clean = if_else(pdays == -1, NA_real_, as.numeric(pdays)),
+    
+    # Variables discretizadas útiles para reglas de asociación.
+    age_group = cut(
+      age,
+      breaks = c(-Inf, 30, 45, 60, Inf),
+      labels = c("young", "adult", "middle_age", "senior")
+    ),
+    balance_group = cut(
+      balance,
+      breaks = quantile(balance, probs = c(0, .25, .5, .75, 1), na.rm = TRUE),
+      include.lowest = TRUE,
+      labels = c("low", "medium_low", "medium_high", "high")
+    ),
+    duration_group = cut(
+      duration,
+      breaks = quantile(duration, probs = c(0, .25, .5, .75, 1), na.rm = TRUE),
+      include.lowest = TRUE,
+      labels = c("short", "medium_short", "medium_long", "long")
+    ),
+    campaign_group = cut(
+      campaign,
+      breaks = c(-Inf, 1, 2, 4, Inf),
+      labels = c("one", "two", "three_four", "many")
+    ),
+    previous_group = cut(
+      previous,
+      breaks = c(-Inf, 0, 1, 3, Inf),
+      labels = c("none", "one", "two_three", "many")
+    )
+  )
+
+bank_prep |> select(age, age_group, balance, balance_group, duration, duration_group, pdays, previous_contacted, pdays_clean) |> head()
+```
+
+# 5. Representaciones alternativas de los datos
+
+El dataset original combina variables numéricas y categóricas. Por eso no existe una única representación correcta. Cada técnica necesita una codificación distinta.
+
+## 5.1 Representación tabular original
+
+```{r representation-original}
+rep_original <- bank_prep
+rep_original |> glimpse()
+```
+
+## 5.2 Representación numérica escalada
+
+```{r representation-numeric-scaled}
+rep_numeric <- bank_prep |> 
+  select(age, balance, day, duration, campaign, pdays, previous) |>
+  mutate(pdays = if_else(pdays == -1, 0, pdays))
+
+rep_numeric_scaled <- scale(rep_numeric)
+summary(rep_numeric_scaled)
+```
+
+## 5.3 Representación con variables dummy
+
+```{r representation-dummies}
+dummy_recipe <- recipe(deposit ~ ., data = bank_prep |> select(-pdays_clean)) |>
+  step_unknown(all_nominal_predictors()) |>
+  step_dummy(all_nominal_predictors()) |>
+  step_zv(all_predictors()) |>
+  step_normalize(all_numeric_predictors())
+
+dummy_prep <- prep(dummy_recipe)
+rep_dummy <- bake(dummy_prep, new_data = NULL)
+
+dim(rep_dummy)
+rep_dummy |> select(1:8) |> head()
+```
+
+## 5.4 Representación transaccional para reglas de asociación
+
+```{r representation-transactions}
+trans_data <- bank_prep |>
+  select(
+    deposit, age_group, job, marital, education, default, housing, loan,
+    contact, month, poutcome, previous_contacted,
+    balance_group, duration_group, campaign_group, previous_group
+  ) |>
+  mutate(across(everything(), as.factor))
+
+trans <- as(trans_data, "transactions")
+summary(trans)
+```
+
+## 5.5 Representación mediante kernel gaussiano
+
+Para evitar construir una matriz de Gram demasiado grande, se toma una muestra. La matriz completa tendría más de once mil filas y columnas, lo que puede ser innecesario para una visualización exploratoria.
+
+```{r representation-kernel-functions}
+pairwise_sqdist <- function(X, Z = NULL) {
+  X <- as.matrix(X)
+  if (is.null(Z)) Z <- X else Z <- as.matrix(Z)
+  XX <- rowSums(X * X)
+  ZZ <- rowSums(Z * Z)
+  outer(XX, ZZ, "+") - 2 * (X %*% t(Z))
+}
+
+kernel_gauss <- function(X, Z = NULL, sigma = 1) {
+  exp(-pairwise_sqdist(X, Z) / (2 * sigma^2))
+}
+```
+
+```{r representation-kernel, fig.width=7, fig.height=5}
+set.seed(123)
+idx_kernel <- sample(seq_len(nrow(rep_dummy)), size = min(1500, nrow(rep_dummy)))
+X_kernel <- rep_dummy |> 
+  select(-deposit) |> 
+  slice(idx_kernel) |> 
+  as.matrix()
+
+y_kernel <- rep_dummy |> 
+  slice(idx_kernel) |> 
+  pull(deposit)
+
+# Heurística: sigma como mediana de distancias en una submuestra.
+dist_sample <- dist(X_kernel[sample(seq_len(nrow(X_kernel)), min(300, nrow(X_kernel))), ])
+sigma_med <- median(as.numeric(dist_sample))
+
+K <- kernel_gauss(X_kernel, sigma = sigma_med)
+K <- (K + t(K)) / 2
+
+ev <- eigen(K, symmetric = TRUE)
+coords_kernel <- tibble(
+  coord1 = ev$vectors[, 1] * sqrt(pmax(ev$values[1], 0)),
+  coord2 = ev$vectors[, 2] * sqrt(pmax(ev$values[2], 0)),
+  deposit = y_kernel
+)
+
+ggplot(coords_kernel, aes(coord1, coord2, color = deposit)) +
+  geom_point(alpha = 0.6) +
+  labs(
+    title = "Representación espectral mediante kernel gaussiano",
+    subtitle = paste("sigma =", round(sigma_med, 3)),
+    x = "Coordenada kernel 1",
+    y = "Coordenada kernel 2"
+  )
+```
+
+**Interpretación.** Esta representación no cambia los datos originales, sino la geometría con la que se comparan clientes. Dos clientes quedan cerca si son similares según el kernel elegido.
+
+# 6. Distancias para datos mixtos
+
+## 6.1 Distancia euclídea sobre variables numéricas
+
+```{r euclidean-distance}
+set.seed(123)
+idx_dist <- sample(seq_len(nrow(bank_prep)), size = min(1500, nrow(bank_prep)))
+
+X_num_sample <- rep_numeric_scaled[idx_dist, ]
+dist_euclidean <- dist(X_num_sample, method = "euclidean")
+summary(as.numeric(dist_euclidean))
+```
+
+## 6.2 Distancia de Manhattan
+
+```{r manhattan-distance}
+dist_manhattan <- dist(X_num_sample, method = "manhattan")
+summary(as.numeric(dist_manhattan))
+```
+
+## 6.3 Distancia de Gower para variables mixtas
+
+```{r gower-distance}
+X_mixed_sample <- bank_prep |>
+  select(age, job, marital, education, default, balance, housing, loan,
+         contact, campaign, previous_contacted, poutcome, deposit) |>
+  slice(idx_dist)
+
+dist_gower <- daisy(X_mixed_sample |> select(-deposit), metric = "gower")
+summary(as.numeric(dist_gower))
+```
+
+**Interpretación.** La distancia euclídea y Manhattan requieren variables numéricas y escaladas. La distancia de Gower es más adecuada para datos mixtos, porque combina variables numéricas y categóricas de forma más natural.
+
+# 7. Reglas de asociación
+
+El dataset no es una cesta de compra natural, pero puede transformarse en una base transaccional donde cada cliente queda representado por un conjunto de atributos discretizados. La unidad de análisis es el cliente contactado por la campaña.
+
+```{r association-rules}
+rules_yes <- apriori(
+  trans,
+  parameter = list(supp = 0.02, conf = 0.50, minlen = 2, maxlen = 5, target = "rules"),
+  appearance = list(rhs = "deposit=yes", default = "lhs")
+)
+
+rules_yes <- sort(rules_yes, by = "lift", decreasing = TRUE)
+rules_yes_nonred <- rules_yes[!is.redundant(rules_yes)]
+
+cat("Reglas generadas:", length(rules_yes), "\n")
+cat("Reglas no redundantes:", length(rules_yes_nonred), "\n")
+
+inspect(head(rules_yes_nonred, 15))
+```
+
+```{r association-rules-quality}
+quality(rules_yes_nonred) |> 
+  as_tibble() |> 
+  arrange(desc(lift)) |> 
+  head(15)
+```
+
+```{r association-rules-plot, fig.width=7, fig.height=5}
+plot(head(rules_yes_nonred, 50), method = "scatterplot", measure = c("support", "confidence"), shading = "lift")
+```
+
+```{r association-rules-graph, fig.width=8, fig.height=6}
+# Visualización solo de pocas reglas para evitar un grafo ilegible.
+plot(head(rules_yes_nonred, 15), method = "graph", engine = "htmlwidget")
+```
+
+**Interpretación.** Las reglas deben leerse como asociaciones, no como causalidad. Una regla útil combina soporte suficiente, confianza alta, lift superior a 1 y una interpretación accionable para negocio.
+
+# 8. Clustering de clientes
+
+## 8.1 K-means sobre variables numéricas escaladas
+
+```{r kmeans-elbow, fig.width=7, fig.height=5}
+fviz_nbclust(as.data.frame(rep_numeric_scaled), kmeans, method = "wss") +
+  labs(title = "Selección de k mediante método del codo")
+```
+
+```{r kmeans-clustering, fig.width=7, fig.height=5}
+set.seed(123)
+k_num <- 3
+km <- kmeans(rep_numeric_scaled, centers = k_num, nstart = 25)
+
+bank_clusters_km <- bank_prep |>
+  mutate(cluster_kmeans = factor(km$cluster))
+
+bank_clusters_km |> 
+  count(cluster_kmeans, deposit) |> 
+  group_by(cluster_kmeans) |> 
+  mutate(prop = n / sum(n)) |> 
+  ungroup()
+
+fviz_cluster(km, data = rep_numeric_scaled, geom = "point", ellipse.type = "norm") +
+  labs(title = "Clusters k-means sobre variables numéricas")
+```
+
+```{r kmeans-profile}
+bank_clusters_km |>
+  group_by(cluster_kmeans) |>
+  summarise(
+    n = n(),
+    deposit_rate = mean(deposit == "yes"),
+    age_mean = mean(age),
+    balance_mean = mean(balance),
+    duration_mean = mean(duration),
+    campaign_mean = mean(campaign),
+    previous_mean = mean(previous),
+    .groups = "drop"
+  )
+```
+
+## 8.2 PAM con distancia de Gower
+
+```{r pam-gower, fig.width=7, fig.height=5}
+set.seed(123)
+k_gower <- 3
+pam_gower <- pam(dist_gower, k = k_gower, diss = TRUE)
+
+bank_gower_clusters <- X_mixed_sample |>
+  mutate(cluster_gower = factor(pam_gower$clustering))
+
+bank_gower_clusters |> 
+  count(cluster_gower, deposit) |> 
+  group_by(cluster_gower) |> 
+  mutate(prop = n / sum(n)) |> 
+  ungroup()
+
+fviz_cluster(pam_gower, data = X_mixed_sample |> select(where(is.numeric)), geom = "point") +
+  labs(title = "PAM usando distancia de Gower")
+```
+
+```{r gower-profile}
+bank_gower_clusters |>
+  group_by(cluster_gower) |>
+  summarise(
+    n = n(),
+    deposit_rate = mean(deposit == "yes"),
+    age_mean = mean(age),
+    balance_mean = mean(balance),
+    most_common_job = names(sort(table(job), decreasing = TRUE))[1],
+    most_common_education = names(sort(table(education), decreasing = TRUE))[1],
+    housing_yes = mean(housing == "yes"),
+    loan_yes = mean(loan == "yes"),
+    .groups = "drop"
+  )
+```
+
+**Interpretación.** K-means segmenta usando solo variables numéricas, mientras que PAM con Gower permite incluir información categórica. Por eso el segundo enfoque suele ser más coherente con datos de clientes bancarios.
+
+# 9. PCA y biplots
+
+## 9.1 PCA sobre variables numéricas
+
+```{r pca-numeric}
+pca_num <- prcomp(rep_numeric_scaled, center = FALSE, scale. = FALSE)
+summary(pca_num)
+```
+
+```{r pca-scree, fig.width=7, fig.height=5}
+fviz_eig(pca_num, addlabels = TRUE) +
+  labs(title = "Varianza explicada por componentes principales")
+```
+
+```{r pca-biplot, fig.width=8, fig.height=6}
+fviz_pca_biplot(
+  pca_num,
+  geom.ind = "point",
+  habillage = bank_prep$deposit,
+  addEllipses = TRUE,
+  label = "var"
+) +
+  labs(title = "Biplot PCA sobre variables numéricas")
+```
+
+```{r pca-loadings}
+loadings_num <- pca_num$rotation |> 
+  as.data.frame() |> 
+  rownames_to_column("variable")
+
+loadings_num
+```
+
+## 9.2 PCA sobre representación dummy
+
+```{r pca-dummy, fig.width=8, fig.height=6}
+# PCA sobre muestra para evitar un cálculo demasiado pesado.
+set.seed(123)
+idx_pca_dummy <- sample(seq_len(nrow(rep_dummy)), size = min(2500, nrow(rep_dummy)))
+X_dummy_pca <- rep_dummy |> 
+  select(-deposit) |> 
+  slice(idx_pca_dummy)
+y_dummy_pca <- rep_dummy |> 
+  slice(idx_pca_dummy) |> 
+  pull(deposit)
+
+pca_dummy <- prcomp(X_dummy_pca, center = FALSE, scale. = FALSE)
+
+fviz_pca_ind(
+  pca_dummy,
+  geom.ind = "point",
+  habillage = y_dummy_pca,
+  addEllipses = TRUE
+) +
+  labs(title = "PCA sobre representación con dummies")
+```
+
+**Interpretación.** El PCA ayuda a resumir la variabilidad global, pero no está optimizado para separar `deposit=yes` y `deposit=no`. Si las clases no se separan claramente, no significa que no pueda haber modelos predictivos útiles: solo indica que la separación no es evidente en las primeras componentes lineales.
+
+# 10. Clasificación supervisada
+
+Se entrenan varios modelos para predecir `deposit`. Se comparan dos escenarios:
+
+1. **Con `duration`**: útil para entender la campaña una vez realizada la llamada.
+2. **Sin `duration`**: más realista si el banco quiere priorizar clientes antes de llamar.
+
+## 10.1 División train/test
+
+```{r train-test-split}
+set.seed(123)
+split_bank <- initial_split(bank_prep |> select(-pdays_clean), prop = 0.8, strata = deposit)
+train_bank <- training(split_bank)
+test_bank  <- testing(split_bank)
+
+count(train_bank, deposit) |> mutate(prop = n / sum(n))
+count(test_bank, deposit) |> mutate(prop = n / sum(n))
+```
+
+## 10.2 Funciones auxiliares
+
+```{r model-functions}
+classification_metrics <- metric_set(accuracy, roc_auc, sens, spec)
+
+fit_evaluate_model <- function(model_spec, recipe_obj, train_data, test_data, model_name) {
+  wf <- workflow() |>
+    add_model(model_spec) |>
+    add_recipe(recipe_obj)
+  
+  fitted <- fit(wf, data = train_data)
+  
+  preds_class <- predict(fitted, test_data, type = "class")
+  preds_prob  <- predict(fitted, test_data, type = "prob")
+  
+  results <- bind_cols(test_data |> select(deposit), preds_class, preds_prob)
+  
+  metrics <- classification_metrics(
+    results,
+    truth = deposit,
+    estimate = .pred_class,
+    .pred_yes,
+    event_level = "second"
+  ) |>
+    mutate(model = model_name)
+  
+  list(fitted = fitted, predictions = results, metrics = metrics)
+}
+```
+
+## 10.3 Recetas de preprocesado
+
+```{r recipes-classification}
+recipe_with_duration <- recipe(deposit ~ ., data = train_bank) |>
+  step_unknown(all_nominal_predictors()) |>
+  step_dummy(all_nominal_predictors()) |>
+  step_zv(all_predictors()) |>
+  step_normalize(all_numeric_predictors())
+
+recipe_without_duration <- recipe(deposit ~ ., data = train_bank |> select(-duration, -duration_group)) |>
+  step_unknown(all_nominal_predictors()) |>
+  step_dummy(all_nominal_predictors()) |>
+  step_zv(all_predictors()) |>
+  step_normalize(all_numeric_predictors())
+```
+
+## 10.4 Modelos candidatos
+
+```{r model-specs}
+log_spec <- logistic_reg() |>
+  set_engine("glm") |>
+  set_mode("classification")
+
+tree_spec <- decision_tree(cost_complexity = 0.01, tree_depth = 6, min_n = 20) |>
+  set_engine("rpart") |>
+  set_mode("classification")
+
+rf_spec <- rand_forest(trees = 300, mtry = 8, min_n = 10) |>
+  set_engine("ranger", importance = "impurity") |>
+  set_mode("classification")
+
+svm_spec <- svm_rbf(cost = 1, rbf_sigma = 0.05) |>
+  set_engine("kernlab") |>
+  set_mode("classification")
+```
+
+## 10.5 Entrenamiento y evaluación con `duration`
+
+```{r train-models-with-duration}
+models_with_duration <- list(
+  logistic = log_spec,
+  tree = tree_spec,
+  random_forest = rf_spec,
+  svm_rbf = svm_spec
+)
+
+results_with_duration <- map2(
+  models_with_duration,
+  names(models_with_duration),
+  ~fit_evaluate_model(.x, recipe_with_duration, train_bank, test_bank, paste0(.y, "_with_duration"))
+)
+
+metrics_with_duration <- map_dfr(results_with_duration, "metrics")
+metrics_with_duration
+```
+
+## 10.6 Entrenamiento y evaluación sin `duration`
+
+```{r train-models-without-duration}
+train_bank_no_duration <- train_bank |> select(-duration, -duration_group)
+test_bank_no_duration  <- test_bank |> select(-duration, -duration_group)
+
+results_without_duration <- map2(
+  models_with_duration,
+  names(models_with_duration),
+  ~fit_evaluate_model(.x, recipe_without_duration, train_bank_no_duration, test_bank_no_duration, paste0(.y, "_without_duration"))
+)
+
+metrics_without_duration <- map_dfr(results_without_duration, "metrics")
+metrics_without_duration
+```
+
+## 10.7 Comparación de modelos
+
+```{r compare-models, fig.width=9, fig.height=5}
+all_metrics <- bind_rows(metrics_with_duration, metrics_without_duration)
+
+all_metrics |> 
+  arrange(.metric, desc(.estimate))
+
+all_metrics |> 
+  ggplot(aes(fct_reorder(model, .estimate), .estimate, fill = .metric)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  facet_wrap(~ .metric, scales = "free_x") +
+  labs(
+    title = "Comparación de modelos de clasificación",
+    x = NULL,
+    y = "Valor de la métrica"
+  )
+```
+
+## 10.8 Curva ROC del mejor modelo
+
+```{r roc-best-model, fig.width=7, fig.height=5}
+# Seleccionamos automáticamente el mejor modelo por ROC AUC.
+best_model_name <- all_metrics |>
+  filter(.metric == "roc_auc") |>
+  arrange(desc(.estimate)) |>
+  slice(1) |>
+  pull(model)
+
+best_results <- c(results_with_duration, results_without_duration)[[best_model_name]]
+
+# Si el nombre automático no coincide por los nombres de la lista, se puede elegir manualmente:
+# best_results <- results_with_duration$random_forest
+
+best_results$predictions |>
+  roc_curve(truth = deposit, .pred_yes, event_level = "second") |>
+  autoplot() +
+  labs(title = paste("Curva ROC -", best_model_name))
+```
+
+## 10.9 Importancia de variables en Random Forest
+
+```{r variable-importance, fig.width=8, fig.height=6}
+rf_fit <- results_with_duration$random_forest$fitted
+
+rf_fit |>
+  extract_fit_parsnip() |>
+  vip(num_features = 20) +
+  labs(title = "Importancia de variables - Random Forest con duration")
+```
+
+**Interpretación.** Si `duration` aparece como variable dominante, el resultado es lógico, pero debe explicarse con cuidado. Un modelo con `duration` puede tener mejor rendimiento técnico, pero un modelo sin `duration` es más útil para priorizar clientes antes de la llamada.
+
+# 11. Conexión predictiva-prescriptiva: priorización de clientes
+
+Una predicción solo se convierte en decisión si se traduce en una acción. Como ejemplo simple, se puede estimar la probabilidad de contratación y ordenar clientes por probabilidad esperada.
+
+```{r client-prioritization}
+# Usamos Random Forest sin duration como ejemplo más realista para priorización previa a la llamada.
+rf_no_duration <- results_without_duration$random_forest$fitted
+
+client_scores <- predict(rf_no_duration, test_bank_no_duration, type = "prob") |>
+  bind_cols(test_bank_no_duration |> select(deposit, age, job, marital, education, balance, housing, loan, poutcome)) |>
+  arrange(desc(.pred_yes))
+
+client_scores |> head(15)
+```
+
+**Lectura de negocio.** Si el banco tiene recursos limitados, puede priorizar clientes con mayor probabilidad estimada de contratar. En un proyecto real se añadiría el valor económico esperado del depósito, el coste de contacto y restricciones comerciales.
+
+# 12. Conclusiones de negocio
+
+Completar tras ejecutar el notebook. Una estructura recomendable sería:
+
+1. **Conclusión descriptiva.** Qué perfiles tienen mayor proporción de `deposit=yes`.
+2. **Conclusión sobre reglas.** Qué combinaciones de atributos aparecen asociadas con contratación.
+3. **Conclusión de clustering.** Qué segmentos de clientes aparecen y cuál tiene mayor tasa de contratación.
+4. **Conclusión de PCA/kernels.** Si hay estructura geométrica visible o no.
+5. **Conclusión predictiva.** Qué modelo funciona mejor y qué ocurre al quitar `duration`.
+6. **Recomendación final.** Cómo debería usar el banco el análisis para priorizar campañas futuras.
+
+# 13. Limitaciones
+
+- La variable `duration` puede introducir una ventaja predictiva que no existe antes de realizar la llamada.
+- Las reglas de asociación describen coocurrencias, no relaciones causales.
+- Los clusters dependen de la representación y de la distancia elegida.
+- La base contiene información histórica de una campaña concreta, por lo que la extrapolación a campañas futuras debería validarse con datos nuevos.
+- Para una decisión prescriptiva completa faltaría incorporar valor económico del cliente, coste de contacto y probabilidad de éxito de diferentes acciones comerciales.
