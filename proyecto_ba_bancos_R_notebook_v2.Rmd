@@ -43,12 +43,12 @@ Desde el punto de vista de Business Analytics, el objetivo no es únicamente con
 
 El trabajo se estructura siguiendo la metodología CRISP-DM:
 
-1. Comprensión del negocio.
-2. Comprensión de los datos.
-3. Preparación de los datos.
-4. Modelado.
-5. Evaluación.
-6. Conclusiones y recomendaciones de negocio.
+1.  Comprensión del negocio.
+2.  Comprensión de los datos.
+3.  Preparación de los datos.
+4.  Modelado.
+5.  Evaluación.
+6.  Conclusiones y recomendaciones de negocio.
 
 # 2. Carga y comprensión inicial de los datos
 
@@ -83,7 +83,7 @@ bank |>
   mutate(prop = n / sum(n))
 ```
 
-**Comentario inicial.** El dataset contiene variables numéricas y categóricas. No aparecen valores `NA`, pero sí existen categorías como `unknown` y valores especiales como `pdays = -1`, que indican que el cliente no había sido contactado previamente. Estos casos se tratarán explícitamente en la preparación de datos.
+**Comentario inicial.** El dataset contiene variables numéricas y categóricas. No aparecen valores `NA`, pero sí existen categorías como `unknown` y valores especiales como `pdays = -1`, que indican que el cliente no había sido contactado previamente. Estos casos se tratarán explícitamente en la preparación de datos. Adicionalmente, cabe resaltar que la variable objetivo `deposit` no muestra un desbalanceo significativo entre sus dos clases (no: 53%, yes: 47%), lo cual es una ventaja, ya que, al implementar modelos predictivos esto favorece a que el modelo aprenda mejor, reduciendo un posible sesgo hacía una clase mayoritaria sin tener que utilizar técnicas de rebalanceo.
 
 # 3. Análisis descriptivo completo
 
@@ -108,6 +108,8 @@ bank |>
   labs(title = "Distribución de variables numéricas", x = NULL, y = "Frecuencia")
 ```
 
+**Interpretación:** Las distribuciones de las variables numéricas muestran que la mayoría presentan una fuerte asimetría positiva y presencia de valores atípicos. Variables como `balance`, `campaign`, `duration`, `pdays` y `previous` concentran gran parte de las observaciones en valores bajos, pero presentan colas hacia valores altos, lo que indica la existencia de clientes con comportamientos distintos al promedio. La variable `age` muestra una distribución más equilibrada, concentrándose principalmente entre los 30 y 50 años, mientras que day presenta una distribución relativamente uniforme a lo largo del mes, con un pico a mediados de mes.
+
 ```{r numeric-by-target, fig.width=10, fig.height=8}
 bank |> 
   pivot_longer(cols = all_of(num_vars), names_to = "variable", values_to = "value") |> 
@@ -118,7 +120,7 @@ bank |>
   theme(legend.position = "none")
 ```
 
-**Interpretación esperada.** Conviene prestar especial atención a `duration`, `balance`, `campaign`, `pdays` y `previous`. La variable `duration` suele tener una relación muy fuerte con `deposit`, pero tiene una limitación de negocio: antes de realizar la llamada no se conoce la duración de la conversación.
+**Interpretación:** En los diagramas de caja según la contratación del depósito (`deposit`), la variable `duration` muestra una diferencia clara entre clases, observándose llamadas considerablemente más largas en los clientes que sí contrataron el depósito, lo que sugiere una fuerte relación con la variable objetivo. También se aprecia que los clientes que aceptaron el depósito tienden a tener mayores valores de `pdays` y `previous`, indicando una mayor interacción previa con campañas del banco. Por otro lado, `campaign` presenta medianas similares entre clases, aunque con numerosos valores extremos, mientras que `age` y `balance` muestran diferencias moderadas, sugiriendo una influencia menos determinante.
 
 ## 3.2 Variables categóricas
 
@@ -147,6 +149,8 @@ cat_summary |>
   labs(title = "Frecuencias de variables categóricas", x = NULL, y = "Frecuencia")
 ```
 
+**Interpretación:** Las gráficas de frecuencias de las variables categóricas permiten observar una distribución desigual entre muchas de las categorías del dataset. En `contact` predomina claramente el uso de teléfonos móviles (cellular). La variable `default` muestra que casi ningún cliente tiene historial de impago, indicando un fuerte desbalance en esta categoría. En `education`, predominan los niveles de educación secundaria y terciaria, mientras que `job` presenta una mayor representación de perfiles de management, blue-collar y técnicos. Respecto a variables financieras, la mayoría de clientes no poseen préstamos personales (`loan`) y la distribución de hipotecas (`housing`) es relativamente equilibrada. En `marital`, predominan claramente los clientes casados, seguidos por solteros. La variable `month` evidencia que la mayor parte de los contactos se realizaron en mayo, seguido de agosto y julio, lo que sugiere una fuerte concentración temporal de las campañas en épocas en torno al verano/fin del curso académico. Finalmente, en `poutcome` destaca que la mayoría de registros aparecen como unknown, indicando que en muchos casos no existía información sobre campañas anteriores, mientras que los resultados exitosos y fallidos representan una proporción mucho menor del conjunto de datos.
+
 ## 3.3 Relación entre variables categóricas y `deposit`
 
 ```{r categorical-target, fig.width=11, fig.height=10}
@@ -169,9 +173,27 @@ bank |>
   )
 ```
 
-**Interpretación esperada.** Esta sección permite detectar perfiles o situaciones de campaña asociadas a mayor contratación. Variables como `poutcome`, `contact`, `housing`, `loan`, `job` o `month` pueden aportar diferencias relevantes.
+**Interpretación:** Estas gráficas permiten observar cómo la distribución entre clientes que contrataron (yes) y no contrataron (no) el depósito varía dentro de cada categoría. Aunque en el apartado anterior se observó que categorías como *cellular*, *management* o *secondary* eran las más frecuentes, aquí se aprecia que la frecuencia de aparición no implica necesariamente una mayor tasa de contratación. Por ejemplo, aunque *management* y *blue-collar* son de los grupos laborales más numerosos, los perfiles con mayor proporción de contratación son *student* y *retired*. Del mismo modo, la categoría *unknown* en `contact` y `poutcome`, que ya destacaba por tener una presencia elevada, presenta una menor proporción de éxito respecto a categorías con información más específica. También se confirma que los clientes sin préstamos (`loan` = no) ni hipoteca (`housing` = no) muestran una tendencia más favorable a contratar el depósito. En la variable temporal `month`,mayo concentraba el mayor número de contactos pero se observa que no es el mes con mejor tasa de conversión, mientras que meses menos frecuentes como septiembre y octubre (meses post-verano) o diciembre (navidades) presentan porcentajes de contratación superiores. Finalmente, la variable `poutcome` vuelve a destacar como una de las más influyentes, ya que los clientes con campañas previas exitosas (*success*), aunque menos frecuentes, muestran una probabilidad muy alta de contratar nuevamente el depósito.
 
 # 4. Preparación de datos
+
+En esta etapa se realiza un proceso de transformación y enriquecimiento del dataset con el objetivo de mejorar la interpretabilidad de las variables y facilitar posteriores análisis estadísticos y modelados.
+
+En primer lugar, la variable `pdays` es modificada para tratar adecuadamente el valor especial `-1`, utilizado en el dataset para indicar que un cliente nunca había sido contactado previamente.
+
+A partir de esta información se crea la nueva variable categórica `previous_contacted`, que distingue entre clientes previamente contactados (`yes`) y clientes sin contacto previo (`no`).
+
+Además, se genera la variable `pdays_clean`, donde los valores `-1` son reemplazados por valores nulos (`NA`), evitando que el modelo interprete incorrectamente dichos valores como una cantidad real de días.
+
+Posteriormente, varias variables numéricas continuas son discretizadas en intervalos categóricos más interpretables.
+
+La variable `age` se transforma en `age_group`, agrupando los clientes en perfiles de edad (`young`, `adult`, `middle_age` y `senior`).
+
+La variable `balance` se convierte en `balance_group`, clasificando el balance bancario en niveles desde bajo hasta alto mediante cuartiles.
+
+De forma similar, `duration` se transforma en `duration_group`, agrupando la duración de las llamadas en diferentes categorías temporales.
+
+Finalmente, las variables `campaign` y `previous` son convertidas en `campaign_group` y `previous_group`, respectivamente, permitiendo distinguir entre clientes con pocos o muchos contactos durante campañas actuales y anteriores. Estas transformaciones permiten simplificar el análisis de patrones de comportamiento y mejorar la interpretabilidad de los resultados obtenidos posteriormente.
 
 ```{r data-preparation}
 bank_prep <- bank |>
@@ -227,6 +249,10 @@ rep_original |> glimpse()
 
 ## 5.2 Representación numérica escalada
 
+Esta representación transforma el conjunto de datos a un formato completamente numérico utilizando únicamente variables cuantitativas relevantes del dataset, como la edad, el balance bancario, la duración de la llamada o el número de contactos realizados. Previamente, la variable `pdays` es ajustada reemplazando el valor especial `-1` por `0`, evitando así problemas durante el proceso de escalado. Posteriormente, todas las variables son estandarizadas mediante un proceso de escalado, de forma que cada una pase a tener media cercana a 0 y desviación estándar cercana a 1. Esto evita que variables con rangos muy grandes, como `balance` o `duration`, dominen sobre otras durante el entrenamiento de modelos.
+
+Este tipo de representación es especialmente útil en algoritmos sensibles a la escala de los datos, como regresión logística, redes neuronales, máquinas de soporte vectorial (SVM), clustering o métodos basados en distancias como K-Means o KNN. Además, el escalado mejora la estabilidad numérica y acelera la convergencia de muchos algoritmos de optimización utilizados en Machine Learning.
+
 ```{r representation-numeric-scaled}
 rep_numeric <- bank_prep |> 
   select(age, balance, day, duration, campaign, pdays, previous) |>
@@ -237,6 +263,10 @@ summary(rep_numeric_scaled)
 ```
 
 ## 5.3 Representación con variables dummy
+
+Esta representación transforma el dataset a un formato completamente numérico utilizando codificación *dummy* o *one-hot encoding* para las variables categóricas. A partir de todas las variables predictoras del conjunto de datos, cada categoría posible de variables como `job`, `education`, `marital` o `month` se convierte en una nueva variable binaria que indica la presencia o ausencia de dicha categoría en cada observación. De esta manera, el dataset final queda compuesto únicamente por variables numéricas, permitiendo que algoritmos de Machine Learning que no pueden trabajar directamente con texto o factores categóricos puedan utilizar correctamente la información.
+
+Además, durante el proceso se eliminan variables con varianza nula o prácticamente constante, ya que no aportan información útil a los modelos, y posteriormente todas las variables numéricas son normalizadas para que tengan escalas comparables. Esta representación es especialmente útil en modelos como regresión logística, redes neuronales, SVM o métodos basados en distancias, donde las variables categóricas deben convertirse previamente a formato numérico. Aunque este enfoque incrementa considerablemente el número de variables del dataset, permite preservar la información completa de cada categoría sin introducir relaciones ordinales artificiales entre ellas.
 
 ```{r representation-dummies}
 dummy_recipe <- recipe(deposit ~ ., data = bank_prep |> select(-pdays_clean)) |>
@@ -255,6 +285,10 @@ rep_dummy |> select(1:8) |> head()
 
 ## 5.4 Representación transaccional para reglas de asociación
 
+Esta representación transforma el dataset a un formato transaccional orientado al descubrimiento de patrones y reglas de asociación entre características de los clientes y la contratación del depósito bancario. Para ello, se seleccionan principalmente variables categóricas y variables previamente discretizadas, como `age_group`, `balance_group`, `duration_group`, `campaign_group` y `previous_group`, junto con otras variables cualitativas originales como `job`, `education`, `marital` o `poutcome`. Todas las variables son convertidas explícitamente a factores categóricos para que cada valor posible pueda interpretarse como un “ítem” dentro de una transacción.
+
+Posteriormente, cada registro del dataset es transformado a un formato de transacciones, donde cada cliente queda representado como un conjunto de características categóricas simultáneas. Este tipo de representación es especialmente útil en técnicas de minería de datos como el algoritmo Apriori o FP-Growth, cuyo objetivo es identificar asociaciones frecuentes entre variables, por ejemplo detectar perfiles de clientes con alta probabilidad de contratar un depósito. A diferencia de representaciones orientadas a modelos predictivos numéricos, el enfoque transaccional prioriza la interpretabilidad y la extracción de reglas comprensibles para el análisis de comportamiento y toma de decisiones de negocio.
+
 ```{r representation-transactions}
 trans_data <- bank_prep |>
   select(
@@ -269,6 +303,8 @@ summary(trans)
 ```
 
 ## 5.5 Representación mediante kernel gaussiano
+
+Esta representación utiliza un kernel gaussiano para medir la similitud entre observaciones del dataset en un espacio de mayor dimensionalidad. En lugar de comparar directamente los valores originales de las variables, el kernel transforma las distancias entre clientes en una matriz de similitud, donde valores altos indican clientes con características parecidas y valores bajos representan perfiles más diferentes. Posteriormente, mediante una descomposición espectral de esta matriz, los datos son proyectados en dos coordenadas principales que permiten visualizar su estructura interna en un plano bidimensional.
 
 Para evitar construir una matriz de Gram demasiado grande, se toma una muestra. La matriz completa tendría más de once mil filas y columnas, lo que puede ser innecesario para una visualización exploratoria.
 
@@ -322,7 +358,9 @@ ggplot(coords_kernel, aes(coord1, coord2, color = deposit)) +
   )
 ```
 
-**Interpretación.** Esta representación no cambia los datos originales, sino la geometría con la que se comparan clientes. Dos clientes quedan cerca si son similares según el kernel elegido.
+En la representación obtenida se observa la aparición de agrupaciones parciales entre clientes que contrataron el depósito (`yes`) y aquellos que no (`no`), aunque ambas clases siguen presentando cierto solapamiento. Esto indica que existen patrones no lineales en los datos que no son fácilmente visibles mediante representaciones lineales tradicionales. Sin embargo, la separación entre clases no es completamente clara, lo que refleja la complejidad del problema y la influencia simultánea de múltiples variables.
+
+Este tipo de representación resulta útil para detectar estructuras ocultas, relaciones no lineales y posibles agrupamientos en datasets complejos. Además, constituye la base de métodos avanzados como máquinas de soporte vectorial con kernels (Kernel SVM), clustering espectral o técnicas de reducción de dimensionalidad no lineal. Entre sus principales limitaciones destacan el elevado coste computacional al trabajar con matrices de similitud grandes y la sensibilidad al parámetro `sigma`, cuyo valor determina el nivel de vecindad considerado entre observaciones y puede afectar significativamente a la calidad de la representación obtenida.
 
 # 6. Distancias para datos mixtos
 
@@ -505,15 +543,15 @@ bank_gower_clusters |>
 
 **K-means (variables numéricas).** El método del codo sugiere k = 3 como punto razonable de inflexión. Los tres clusters resultantes muestran tasas de contratación claramente diferenciadas:
 
-- **Cluster 1** (n = 2.159): tasa de depósito del **64,3%**, con balance promedio más alto (~1.799 €), edad media de 42 años y duración de llamada corta (~349 s). Es el segmento más valioso en términos de conversión.
-- **Cluster 2** (n = 4.264): tasa de depósito del **34,4%**, con balance intermedio (~1.613 €) y duración de llamada más corta (~294 s). Es el segmento de menor propensión.
-- **Cluster 3** (n = 4.739): tasa de depósito del **51,3%**, con balance más bajo (~1.329 €) pero mayor duración de llamada (~453 s). Sugiere clientes que requieren más tiempo de persuasión pero con resultados medios-altos.
+- **Cluster 1** (n = 2.159): tasa de depósito del **64,3%**, con balance promedio más alto (\~1.799 €), edad media de 42 años y duración de llamada corta (\~349 s). Es el segmento más valioso en términos de conversión.
+- **Cluster 2** (n = 4.264): tasa de depósito del **34,4%**, con balance intermedio (\~1.613 €) y duración de llamada más corta (\~294 s). Es el segmento de menor propensión.
+- **Cluster 3** (n = 4.739): tasa de depósito del **51,3%**, con balance más bajo (\~1.329 €) pero mayor duración de llamada (\~453 s). Sugiere clientes que requieren más tiempo de persuasión pero con resultados medios-altos.
 
 **PAM con Gower (variables mixtas).** Al incorporar información categórica, el perfil de los clusters cambia significativamente:
 
-- **Cluster 1** (n = 472, tasa 60,2%): clientes jóvenes (~35 años), con ocupación predominante en management y educación terciaria. Perfil de mayor valor y conversión.
-- **Cluster 2** (n = 585, tasa 30,6%): clientes de mediana edad (~40 años), trabajadores blue-collar. Segmento de menor propensión al depósito.
-- **Cluster 3** (n = 443, tasa 55,1%): clientes mayores (~50 años), principalmente technicians. Propensión media-alta, segmento con potencial sin explotar.
+- **Cluster 1** (n = 472, tasa 60,2%): clientes jóvenes (\~35 años), con ocupación predominante en management y educación terciaria. Perfil de mayor valor y conversión.
+- **Cluster 2** (n = 585, tasa 30,6%): clientes de mediana edad (\~40 años), trabajadores blue-collar. Segmento de menor propensión al depósito.
+- **Cluster 3** (n = 443, tasa 55,1%): clientes mayores (\~50 años), principalmente technicians. Propensión media-alta, segmento con potencial sin explotar.
 
 La diferencia entre ambos enfoques ilustra cómo la elección de la representación y la métrica de distancia afecta directamente a la segmentación. PAM con Gower es más coherente para datos de clientes bancarios al incorporar variables como ocupación y nivel educativo.
 
@@ -578,7 +616,7 @@ fviz_pca_ind(
 
 El PCA sobre variables numéricas muestra que ninguna componente acumula más del 23% de la varianza por sí sola, y se necesitan las 5 primeras componentes para superar el 80% de varianza explicada acumulada. Esto refleja que la información está repartida entre variables y que no hay una única dimensión dominante.
 
-En los loadings, PC1 está dominada por `pdays` y `previous` (con cargas similares en torno a 0,67), variables de contacto previo. PC2 recoge principalmente `age` y `balance` (cargas ~0,52 y ~0,54). La variable `duration` tiene su mayor carga en PC4.
+En los loadings, PC1 está dominada por `pdays` y `previous` (con cargas similares en torno a 0,67), variables de contacto previo. PC2 recoge principalmente `age` y `balance` (cargas \~0,52 y \~0,54). La variable `duration` tiene su mayor carga en PC4.
 
 El biplot muestra que las elipses de `deposit=yes` y `deposit=no` se solapan considerablemente en el espacio de las dos primeras componentes. Esto indica que la separación entre clases no es lineal en el espacio de variables numéricas originales, lo que justifica el uso de modelos no lineales (Random Forest, SVM) en la etapa de clasificación.
 
@@ -588,8 +626,8 @@ En el PCA sobre representación dummy el solapamiento entre clases sigue siendo 
 
 Se entrenan varios modelos para predecir `deposit`. Se comparan dos escenarios:
 
-1. **Con `duration`**: útil para entender la campaña una vez realizada la llamada.
-2. **Sin `duration`**: más realista si el banco quiere priorizar clientes antes de llamar.
+1.  **Con `duration`**: útil para entender la campaña una vez realizada la llamada.
+2.  **Sin `duration`**: más realista si el banco quiere priorizar clientes antes de llamar.
 
 La variable `duration` mide la duración de la llamada. Por tanto, puede ser muy predictiva, pero no siempre estaría disponible antes de decidir a qué cliente llamar. Por eso se comparan ambos escenarios.
 
@@ -779,21 +817,21 @@ Los resultados muestran una diferencia notable y sistemática entre los escenari
 
 **Con `duration`:**
 
-| Modelo | Accuracy | ROC-AUC | Sensibilidad | Especificidad |
-|---|---|---|---|---|
-| Random Forest | 0,842 | **0,910** | 0,872 | 0,815 |
-| Logística | 0,824 | 0,897 | 0,803 | 0,842 |
-| SVM RBF | 0,817 | 0,886 | 0,850 | 0,787 |
-| Árbol decisión | 0,784 | 0,838 | 0,867 | 0,709 |
+| Modelo         | Accuracy | ROC-AUC   | Sensibilidad | Especificidad |
+|----------------|----------|-----------|--------------|---------------|
+| Random Forest  | 0,842    | **0,910** | 0,872        | 0,815         |
+| Logística      | 0,824    | 0,897     | 0,803        | 0,842         |
+| SVM RBF        | 0,817    | 0,886     | 0,850        | 0,787         |
+| Árbol decisión | 0,784    | 0,838     | 0,867        | 0,709         |
 
 **Sin `duration`:**
 
-| Modelo | Accuracy | ROC-AUC | Sensibilidad | Especificidad |
-|---|---|---|---|---|
-| Random Forest | 0,726 | **0,784** | 0,620 | 0,822 |
-| Logística | 0,713 | 0,762 | 0,595 | 0,820 |
-| SVM RBF | 0,701 | 0,748 | 0,583 | 0,807 |
-| Árbol decisión | 0,657 | 0,701 | 0,538 | 0,763 |
+| Modelo         | Accuracy | ROC-AUC   | Sensibilidad | Especificidad |
+|----------------|----------|-----------|--------------|---------------|
+| Random Forest  | 0,726    | **0,784** | 0,620        | 0,822         |
+| Logística      | 0,713    | 0,762     | 0,595        | 0,820         |
+| SVM RBF        | 0,701    | 0,748     | 0,583        | 0,807         |
+| Árbol decisión | 0,657    | 0,701     | 0,538        | 0,763         |
 
 La caída al eliminar `duration` es pronunciada: el ROC-AUC del mejor modelo pasa de 0,91 a 0,78. Esto confirma que `duration` actúa como un proxy muy fuerte de la predisposición del cliente (las llamadas más largas ocurren cuando el cliente está interesado), pero al no ser observable antes de la llamada, su inclusión en un modelo de priorización previa sería metodológicamente incorrecta.
 
@@ -848,9 +886,9 @@ Random Forest es el mejor modelo en ambos escenarios (con y sin `duration`). Con
 
 El análisis permite diseñar una política de priorización de campañas en tres pasos:
 
-1. **Filtrado por reglas de negocio:** excluir clientes con historial de rechazo previo y sin contacto anterior. Priorizar clientes con `poutcome=success`.
-2. **Scoring con Random Forest (sin `duration`):** ordenar el resto de la base de clientes por probabilidad estimada de contratar. El modelo sin `duration` es el adecuado para decisiones previas al contacto.
-3. **Segmentación diferenciada:** usar los clusters PAM-Gower para adaptar el mensaje comercial y el canal de contacto (móvil vs. teléfono fijo) a cada segmento.
+1.  **Filtrado por reglas de negocio:** excluir clientes con historial de rechazo previo y sin contacto anterior. Priorizar clientes con `poutcome=success`.
+2.  **Scoring con Random Forest (sin `duration`):** ordenar el resto de la base de clientes por probabilidad estimada de contratar. El modelo sin `duration` es el adecuado para decisiones previas al contacto.
+3.  **Segmentación diferenciada:** usar los clusters PAM-Gower para adaptar el mensaje comercial y el canal de contacto (móvil vs. teléfono fijo) a cada segmento.
 
 Esta combinación de análisis descriptivo, reglas de asociación, clustering y clasificación supervisada proporciona una base analítica sólida para mejorar la eficiencia de futuras campañas, reduciendo el número de contactos necesarios para conseguir la misma tasa de conversión.
 
