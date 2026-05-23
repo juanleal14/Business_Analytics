@@ -1,6 +1,6 @@
 ---
 title: "Business Analytics aplicado a datos bancarios"
-author: "Nombre del estudiante"
+author: "Juan Leal, Miguel Porras, Joaquín Loaces"
 date: "`r Sys.Date()`"
 output:
   html_document:
@@ -11,6 +11,10 @@ output:
 ---
 
 ```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+
 # ============================================================
 # 0. Paquetes
 # ============================================================
@@ -390,7 +394,15 @@ plot(head(rules_yes_nonred, 50), method = "scatterplot", measure = c("support", 
 plot(head(rules_yes_nonred, 15), method = "graph", engine = "htmlwidget")
 ```
 
-**Interpretación.** Las reglas deben leerse como asociaciones, no como causalidad. Una regla útil combina soporte suficiente, confianza alta, lift superior a 1 y una interpretación accionable para negocio.
+**Interpretación de los resultados.**
+
+El algoritmo Apriori generó 4.743 reglas con consecuente `deposit=yes`, de las cuales 1.147 son no redundantes. Las reglas con mayor lift (en torno a 2,0–2,05) combinan de forma consistente tres elementos clave: éxito en campañas anteriores (`poutcome=success`), duración de llamada media-larga (`duration_group=medium_long`) y ausencia de hipoteca (`housing=no`).
+
+La regla con mayor lift identifica clientes sin hipoteca, contactados por teléfono móvil, con éxito previo en campaña y llamada de duración media-larga: la confianza supera el 97% y el lift roza 2,05, lo que significa que ese perfil contrató depósito con aproximadamente el doble de probabilidad que la media del dataset.
+
+Desde el punto de vista operativo, el hallazgo más accionable es que `poutcome=success` aparece en prácticamente todas las reglas de alto lift. Clientes que ya respondieron positivamente en campañas previas deben ser priorizados en futuras campañas, independientemente de otras características. A este segmento se le suman como factores reforzadores: ausencia de hipoteca, ausencia de préstamo personal, contacto por móvil, y pertenecer a ciertos grupos educativos o demográficos.
+
+Las reglas son asociaciones descriptivas, no relaciones causales: no se puede concluir que "contactar por móvil causa la contratación", sino que ese canal aparece asociado con perfiles de mayor propensión. El gráfico de dispersión (soporte vs. confianza, sombreado por lift) confirma que las reglas de mayor lift se concentran en soportes moderados: son patrones específicos pero no marginales.
 
 # 8. Clustering de clientes
 
@@ -489,7 +501,21 @@ bank_gower_clusters |>
   )
 ```
 
-**Interpretación.** K-means segmenta usando solo variables numéricas, mientras que PAM con Gower permite incluir información categórica. Por eso el segundo enfoque suele ser más coherente con datos de clientes bancarios.
+**Interpretación de los resultados.**
+
+**K-means (variables numéricas).** El método del codo sugiere k = 3 como punto razonable de inflexión. Los tres clusters resultantes muestran tasas de contratación claramente diferenciadas:
+
+- **Cluster 1** (n = 2.159): tasa de depósito del **64,3%**, con balance promedio más alto (~1.799 €), edad media de 42 años y duración de llamada corta (~349 s). Es el segmento más valioso en términos de conversión.
+- **Cluster 2** (n = 4.264): tasa de depósito del **34,4%**, con balance intermedio (~1.613 €) y duración de llamada más corta (~294 s). Es el segmento de menor propensión.
+- **Cluster 3** (n = 4.739): tasa de depósito del **51,3%**, con balance más bajo (~1.329 €) pero mayor duración de llamada (~453 s). Sugiere clientes que requieren más tiempo de persuasión pero con resultados medios-altos.
+
+**PAM con Gower (variables mixtas).** Al incorporar información categórica, el perfil de los clusters cambia significativamente:
+
+- **Cluster 1** (n = 472, tasa 60,2%): clientes jóvenes (~35 años), con ocupación predominante en management y educación terciaria. Perfil de mayor valor y conversión.
+- **Cluster 2** (n = 585, tasa 30,6%): clientes de mediana edad (~40 años), trabajadores blue-collar. Segmento de menor propensión al depósito.
+- **Cluster 3** (n = 443, tasa 55,1%): clientes mayores (~50 años), principalmente technicians. Propensión media-alta, segmento con potencial sin explotar.
+
+La diferencia entre ambos enfoques ilustra cómo la elección de la representación y la métrica de distancia afecta directamente a la segmentación. PAM con Gower es más coherente para datos de clientes bancarios al incorporar variables como ocupación y nivel educativo.
 
 # 9. PCA y biplots
 
@@ -548,7 +574,15 @@ fviz_pca_ind(
   labs(title = "PCA sobre representación con dummies")
 ```
 
-**Interpretación.** El PCA ayuda a resumir la variabilidad global, pero no está optimizado para separar `deposit=yes` y `deposit=no`. Si las clases no se separan claramente, no significa que no pueda haber modelos predictivos útiles: solo indica que la separación no es evidente en las primeras componentes lineales.
+**Interpretación de los resultados.**
+
+El PCA sobre variables numéricas muestra que ninguna componente acumula más del 23% de la varianza por sí sola, y se necesitan las 5 primeras componentes para superar el 80% de varianza explicada acumulada. Esto refleja que la información está repartida entre variables y que no hay una única dimensión dominante.
+
+En los loadings, PC1 está dominada por `pdays` y `previous` (con cargas similares en torno a 0,67), variables de contacto previo. PC2 recoge principalmente `age` y `balance` (cargas ~0,52 y ~0,54). La variable `duration` tiene su mayor carga en PC4.
+
+El biplot muestra que las elipses de `deposit=yes` y `deposit=no` se solapan considerablemente en el espacio de las dos primeras componentes. Esto indica que la separación entre clases no es lineal en el espacio de variables numéricas originales, lo que justifica el uso de modelos no lineales (Random Forest, SVM) en la etapa de clasificación.
+
+En el PCA sobre representación dummy el solapamiento entre clases sigue siendo visible, lo que confirma que la estructura informativa está distribuida en muchas dimensiones y no se captura fácilmente con proyecciones lineales de baja dimensión. Este resultado no implica que los modelos predictivos vayan a tener mal rendimiento: simplemente la frontera de decisión no es lineal en este espacio.
 
 # 10. Clasificación supervisada
 
@@ -739,7 +773,31 @@ all_metrics |>
   theme_minimal()
 ```
 
-**Interpretación.** La comparación entre modelos con y sin `duration` permite distinguir entre rendimiento predictivo y utilidad operativa. Si los modelos con `duration` obtienen métricas claramente superiores, esto indica que la duración de la llamada contiene una señal muy fuerte sobre la contratación del depósito. Sin embargo, para una decisión previa a la llamada, los modelos sin `duration` son más realistas, ya que utilizan únicamente información disponible antes del contacto.
+**Interpretación de los resultados.**
+
+Los resultados muestran una diferencia notable y sistemática entre los escenarios con y sin `duration`:
+
+**Con `duration`:**
+
+| Modelo | Accuracy | ROC-AUC | Sensibilidad | Especificidad |
+|---|---|---|---|---|
+| Random Forest | 0,842 | **0,910** | 0,872 | 0,815 |
+| Logística | 0,824 | 0,897 | 0,803 | 0,842 |
+| SVM RBF | 0,817 | 0,886 | 0,850 | 0,787 |
+| Árbol decisión | 0,784 | 0,838 | 0,867 | 0,709 |
+
+**Sin `duration`:**
+
+| Modelo | Accuracy | ROC-AUC | Sensibilidad | Especificidad |
+|---|---|---|---|---|
+| Random Forest | 0,726 | **0,784** | 0,620 | 0,822 |
+| Logística | 0,713 | 0,762 | 0,595 | 0,820 |
+| SVM RBF | 0,701 | 0,748 | 0,583 | 0,807 |
+| Árbol decisión | 0,657 | 0,701 | 0,538 | 0,763 |
+
+La caída al eliminar `duration` es pronunciada: el ROC-AUC del mejor modelo pasa de 0,91 a 0,78. Esto confirma que `duration` actúa como un proxy muy fuerte de la predisposición del cliente (las llamadas más largas ocurren cuando el cliente está interesado), pero al no ser observable antes de la llamada, su inclusión en un modelo de priorización previa sería metodológicamente incorrecta.
+
+**Random Forest** es el mejor modelo en ambos escenarios, tanto en accuracy como en ROC-AUC. Para una decisión operativa realista de priorización previa al contacto, el Random Forest sin `duration` (ROC-AUC = 0,784) es el modelo más adecuado.
 
 # 11. Conexión predictiva-prescriptiva: priorización de clientes
 
@@ -756,23 +814,58 @@ client_scores <- predict(rf_no_duration, test_bank_no_duration, type = "prob") |
 client_scores |> head(15)
 ```
 
-**Lectura de negocio.** Si el banco tiene recursos limitados, puede priorizar clientes con mayor probabilidad estimada de contratar. En un proyecto real se añadiría el valor económico esperado del depósito, el coste de contacto y restricciones comerciales.
+**Lectura de negocio de los resultados.**
+
+El Random Forest sin `duration` asigna probabilidades de contratación superiores al 95% a un grupo muy definido de clientes: hombres y mujeres de entre 24 y 68 años, con ocupación en **management**, **admin.** o **retired**, nivel educativo **tertiary** o **secondary**, sin hipoteca (`housing=no`) y con `poutcome` favorable o sin contacto previo registrado. Los balances del grupo de alta prioridad no son necesariamente elevados, lo que sugiere que el perfil de propensión no depende únicamente del patrimonio.
+
+Entre los 15 clientes con mayor probabilidad estimada, 13 de 15 terminaron contratando el depósito (`deposit=yes`), lo que valida cualitativamente el ranking del modelo. El único caso discordante (posición 4, `deposit=no`, probabilidad 0,969) ilustra que incluso las predicciones de alta confianza pueden fallar: la incertidumbre individual siempre existe.
+
+En una implementación real, este ranking debe cruzarse con el valor económico esperado del depósito, el coste marginal de la llamada y las restricciones de capacidad del equipo comercial, para construir una política de priorización completa.
 
 # 12. Conclusiones de negocio
 
-Completar tras ejecutar el notebook. Una estructura recomendable sería:
+## 12.1 Conclusión descriptiva
 
-1. **Conclusión descriptiva.** Qué perfiles tienen mayor proporción de `deposit=yes`.
-2. **Conclusión sobre reglas.** Qué combinaciones de atributos aparecen asociadas con contratación.
-3. **Conclusión de clustering.** Qué segmentos de clientes aparecen y cuál tiene mayor tasa de contratación.
-4. **Conclusión de PCA/kernels.** Si hay estructura geométrica visible o no.
-5. **Conclusión predictiva.** Qué modelo funciona mejor y qué ocurre al quitar `duration`.
-6. **Recomendación final.** Cómo debería usar el banco el análisis para priorizar campañas futuras.
+El dataset presenta una distribución casi equilibrada entre clientes que contrataron depósito (47,4%) y los que no (52,6%), lo que facilita el aprendizaje supervisado sin necesidad de técnicas de balanceo agresivas. Las variables numéricas más relevantes para la contratación son `duration`, `balance` y `previous`: los clientes con llamadas más largas, mayor saldo y contacto previo muestran tasas de conversión claramente superiores. Entre las variables categóricas, `poutcome=success` es el predictor de mayor poder discriminante: clientes con éxito en campañas anteriores duplican la tasa de contratación respecto a la media. Además, el mes de contacto y el canal (`contact=cellular`) también muestran diferencias apreciables.
+
+## 12.2 Conclusión sobre reglas de asociación
+
+Las reglas de asociación confirman que el perfil de mayor propensión combina éxito previo (`poutcome=success`), llamada de duración media-larga, ausencia de hipoteca y contacto por móvil. Las reglas de mayor lift (≈2,05) alcanzan confianzas superiores al 97%, lo que las convierte en criterios de filtrado muy fiables para segmentar la base de clientes antes de una campaña. La implicación práctica es directa: **los clientes con historial de éxito previo y sin cargas hipotecarias deben ser el primer segmento a contactar** en cualquier campaña futura.
+
+## 12.3 Conclusión de clustering
+
+Tanto K-means como PAM con Gower identifican tres segmentos con tasas de depósito diferenciadas. El segmento de mayor conversión en K-means (Cluster 1, 64,3%) se caracteriza por balance alto y mayor duración de llamada. En PAM con Gower, el Cluster 1 (60,2%) está formado principalmente por clientes jóvenes en management con educación terciaria; el Cluster 3 (55,1%) recoge clientes mayores (technicians), con potencial de campaña todavía sin explotar. El Cluster 2 en ambos métodos representa el segmento de menor conversión (alrededor del 30–34%), compuesto principalmente por trabajadores blue-collar de mediana edad. Esta segmentación permite diseñar mensajes y canales diferenciados por perfil.
+
+## 12.4 Conclusión sobre PCA y representación kernel
+
+El PCA muestra que la varianza del dataset está distribuida entre muchas dimensiones sin que ninguna componente individual capture más del 23% de la información. Las clases `deposit=yes` y `deposit=no` se solapan en el espacio de las dos primeras componentes, lo que confirma que la separación no es lineal. La representación kernel gaussiano también muestra solapamiento entre clases. Estos resultados justifican el uso de modelos no lineales (Random Forest, SVM RBF) para la etapa predictiva, ya que la frontera de decisión óptima no es aproximable con métodos lineales simples.
+
+## 12.5 Conclusión predictiva
+
+Random Forest es el mejor modelo en ambos escenarios (con y sin `duration`). Con `duration`, alcanza ROC-AUC = 0,910 y accuracy = 0,842. Sin `duration` —el escenario operativamente válido para priorización previa al contacto— el ROC-AUC desciende a 0,784 y la accuracy a 0,726. La caída de aproximadamente 12 puntos en ROC-AUC al eliminar `duration` confirma que esta variable actúa como proxy del interés del cliente durante la llamada, y que su exclusión es metodológicamente necesaria para un sistema de scoring previo al contacto.
+
+## 12.6 Recomendación final para el banco
+
+El análisis permite diseñar una política de priorización de campañas en tres pasos:
+
+1. **Filtrado por reglas de negocio:** excluir clientes con historial de rechazo previo y sin contacto anterior. Priorizar clientes con `poutcome=success`.
+2. **Scoring con Random Forest (sin `duration`):** ordenar el resto de la base de clientes por probabilidad estimada de contratar. El modelo sin `duration` es el adecuado para decisiones previas al contacto.
+3. **Segmentación diferenciada:** usar los clusters PAM-Gower para adaptar el mensaje comercial y el canal de contacto (móvil vs. teléfono fijo) a cada segmento.
+
+Esta combinación de análisis descriptivo, reglas de asociación, clustering y clasificación supervisada proporciona una base analítica sólida para mejorar la eficiencia de futuras campañas, reduciendo el número de contactos necesarios para conseguir la misma tasa de conversión.
 
 # 13. Limitaciones
 
-- La variable `duration` puede introducir una ventaja predictiva que no existe antes de realizar la llamada.
-- Las reglas de asociación describen coocurrencias, no relaciones causales.
-- Los clusters dependen de la representación y de la distancia elegida.
-- La base contiene información histórica de una campaña concreta, por lo que la extrapolación a campañas futuras debería validarse con datos nuevos.
-- Para una decisión prescriptiva completa faltaría incorporar valor económico del cliente, coste de contacto y probabilidad de éxito de diferentes acciones comerciales.
+**Fuga de información por `duration`.** La variable `duration` —duración de la llamada en segundos— es un predictor muy potente, pero su valor solo se conoce al finalizar la llamada, no antes. Incluirla en un modelo de scoring previo al contacto introduce fuga de información (*data leakage*): el modelo aprendería a predecir usando información que, en producción, no estaría disponible en el momento de la decisión. Por eso se entrenaron y evaluaron modelos en ambos escenarios, y el recomendado para uso operativo es siempre el modelo sin `duration`.
+
+**Causalidad vs. asociación.** Las reglas de asociación y los análisis descriptivos identifican patrones de coocurrencia, no relaciones causales. El hecho de que `poutcome=success` esté fuertemente asociado con `deposit=yes` no implica que cambiar el resultado de la campaña anterior (algo imposible) aumente la probabilidad de contratación. La causalidad requeriría un diseño experimental o métodos de inferencia causal que van más allá del alcance de este proyecto.
+
+**Representatividad de los datos.** El dataset recoge una campaña concreta en un contexto histórico específico (período, país, tipo de producto bancario). La extrapolación directa de los modelos a campañas futuras, a otros productos o a otros mercados debe hacerse con cautela y validarse con datos nuevos antes de su uso en producción.
+
+**Hiperparámetros fijados sin validación cruzada.** Los modelos se entrenaron con hiperparámetros fijados de antemano (p. ej., `mtry = 8`, `trees = 300` en Random Forest; `cost = 1`, `rbf_sigma = 0.05` en SVM). Un proceso de búsqueda sistemática con validación cruzada podría mejorar las métricas, especialmente en el escenario sin `duration`, donde el margen de mejora es mayor.
+
+**Clustering sin validación de estabilidad.** El número de clusters (k = 3) se eligió usando el método del codo, que es visual y subjetivo. No se realizó un análisis de estabilidad de los clusters (p. ej., bootstrap, índice de Silhouette comparativo entre distintos k) ni se validó la coherencia de los segmentos con criterios de negocio externos.
+
+**Ausencia de valor económico.** El análisis predice la probabilidad de contratación, pero no incorpora el valor económico del depósito ni el coste marginal de cada contacto. Una política de priorización óptima desde el punto de vista del negocio debería maximizar el valor esperado neto, no simplemente la probabilidad de conversión. Esta extensión requeriría información adicional sobre rentabilidad por cliente que no está disponible en el dataset.
+
+**Categorías `unknown` tratadas como nivel informativo.** Las variables `job`, `education`, `contact` y `poutcome` contienen la categoría `unknown`. En este trabajo se trata como un nivel más, lo que puede ser razonable si `unknown` se correlaciona con algún patrón de comportamiento (p. ej., clientes que no quisieron revelar su ocupación). Sin embargo, en un proyecto de producción sería conveniente analizar con más detalle si `unknown` encubre valores perdidos sistemáticos o si es realmente informativo.
