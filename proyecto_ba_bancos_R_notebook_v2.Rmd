@@ -1,7 +1,7 @@
 ---
 title: "Business Analytics aplicado a datos bancarios"
 author: "Juan Leal, Miguel Porras, Joaquín Loaces"
-date: "`r Sys.Date()`"
+date: "26/05/2026"
 output:
   html_document:
     toc: true
@@ -366,6 +366,8 @@ Este tipo de representación resulta útil para detectar estructuras ocultas, re
 
 ## 6.1 Distancia euclídea sobre variables numéricas
 
+La distancia euclídea mide la similitud entre observaciones calculando la distancia geométrica entre clientes en el espacio formado por las variables numéricas escaladas. En este caso, cada cliente queda representado como un punto multidimensional definido por variables como edad, balance bancario, duración de la llamada o número de contactos, y la distancia refleja qué tan parecidos o diferentes son entre sí.
+
 ```{r euclidean-distance}
 set.seed(123)
 idx_dist <- sample(seq_len(nrow(bank_prep)), size = min(1500, nrow(bank_prep)))
@@ -375,14 +377,22 @@ dist_euclidean <- dist(X_num_sample, method = "euclidean")
 summary(as.numeric(dist_euclidean))
 ```
 
+Los resultados obtenidos muestran que la mayoría de las distancias se concentran entre valores moderados, con una mediana cercana a 3 y un promedio de 3.23, lo que indica que gran parte de los clientes presentan perfiles relativamente similares tras el escalado de variables. Sin embargo, la existencia de distancias máximas muy elevadas sugiere la presencia de clientes atípicos o perfiles considerablemente distintos del resto. Este tipo de distancia es especialmente útil en algoritmos basados en proximidad, como KNN, clustering o métodos de reducción de dimensionalidad, aunque puede verse afectada por valores extremos y por la alta dimensionalidad de los datos.
+
 ## 6.2 Distancia de Manhattan
+
+La distancia Manhattan mide la diferencia entre observaciones sumando las diferencias absolutas entre cada una de las variables numéricas, en lugar de calcular la distancia geométrica directa como ocurre con la distancia euclídea. Este enfoque puede interpretarse como la distancia recorrida siguiendo una cuadrícula, avanzando únicamente en cada dimensión de forma independiente.
 
 ```{r manhattan-distance}
 dist_manhattan <- dist(X_num_sample, method = "manhattan")
 summary(as.numeric(dist_manhattan))
 ```
 
+Los resultados muestran valores medios y medianos superiores a los obtenidos con la distancia euclídea, lo cual es esperable debido a la forma en que se agregan las diferencias entre variables. La mayoría de las distancias se concentran en rangos moderados, aunque nuevamente aparecen valores máximos elevados que indican la existencia de clientes con perfiles muy diferentes al resto del dataset. La distancia Manhattan suele ser más robusta frente a valores extremos y puede comportarse mejor en espacios de alta dimensionalidad, por lo que resulta útil en algoritmos de clustering, KNN y análisis de similitud cuando se desea reducir la influencia de grandes desviaciones en variables individuales.
+
 ## 6.3 Distancia de Gower para variables mixtas
+
+La distancia de Gower permite medir similitud entre observaciones cuando el dataset contiene simultáneamente variables numéricas y categóricas, como ocurre en este caso con variables financieras, demográficas y de comportamiento. A diferencia de las distancias euclídea y Manhattan, que únicamente se aplicaron sobre variables numéricas escaladas, la distancia de Gower combina distintos tipos de variables dentro de una misma medida de disimilitud, normalizando automáticamente las contribuciones de cada característica. Esto permite incorporar información categórica importante, como el tipo de trabajo, nivel educativo o tipo de contacto, sin necesidad de transformarlas previamente a un espacio completamente numérico.
 
 ```{r gower-distance}
 X_mixed_sample <- bank_prep |>
@@ -394,7 +404,7 @@ dist_gower <- daisy(X_mixed_sample |> select(-deposit), metric = "gower")
 summary(as.numeric(dist_gower))
 ```
 
-**Interpretación.** La distancia euclídea y Manhattan requieren variables numéricas y escaladas. La distancia de Gower es más adecuada para datos mixtos, porque combina variables numéricas y categóricas de forma más natural.
+Los resultados muestran distancias comprendidas entre 0 y aproximadamente 0.86, con una media cercana a 0.36, indicando que la mayoría de los clientes presentan un grado moderado de similitud entre sí cuando se consideran conjuntamente variables numéricas y categóricas. A diferencia de las distancias euclídea y Manhattan, cuyos valores podían alcanzar magnitudes muy elevadas debido a la acumulación de diferencias numéricas, la distancia de Gower queda acotada en un rango mucho más interpretable, facilitando la comparación entre observaciones. Este tipo de distancia resulta especialmente útil en datasets heterogéneos como el de marketing bancario, ya que preserva la información de distintos tipos de variables y suele utilizarse en clustering, análisis de similitud y técnicas exploratorias sobre datos mixtos.
 
 # 7. Reglas de asociación
 

@@ -11,7 +11,6 @@
 
 <meta name="author" content="Juan Leal, Miguel Porras, Joaquín Loaces" />
 
-<meta name="date" content="2026-05-23" />
 
 <title>Business Analytics aplicado a datos bancarios</title>
 
@@ -5688,7 +5687,7 @@ display: none;
 <h1 class="title toc-ignore">Business Analytics aplicado a datos
 bancarios</h1>
 <h4 class="author">Juan Leal, Miguel Porras, Joaquín Loaces</h4>
-<h4 class="date">2026-05-23</h4>
+<h4 class="date">26/05/2026</h4>
 
 </div>
 
@@ -6658,6 +6657,12 @@ datos mixtos</h1>
 <div id="distancia-euclídea-sobre-variables-numéricas" class="section level2" number="6.1">
 <h2><span class="header-section-number">6.1</span> 6.1 Distancia
 euclídea sobre variables numéricas</h2>
+<p>La distancia euclídea mide la similitud entre observaciones
+calculando la distancia geométrica entre clientes en el espacio formado
+por las variables numéricas escaladas. En este caso, cada cliente queda
+representado como un punto multidimensional definido por variables como
+edad, balance bancario, duración de la llamada o número de contactos, y
+la distancia refleja qué tan parecidos o diferentes son entre sí.</p>
 <pre class="r"><code>set.seed(123)
 idx_dist &lt;- sample(seq_len(nrow(bank_prep)), size = min(1500, nrow(bank_prep)))
 
@@ -6666,18 +6671,56 @@ dist_euclidean &lt;- dist(X_num_sample, method = &quot;euclidean&quot;)
 summary(as.numeric(dist_euclidean))</code></pre>
 <pre><code>##     Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
 ##  0.05964  2.19347  3.00194  3.23014  3.89744 27.26704</code></pre>
+<p>Los resultados obtenidos muestran que la mayoría de las distancias se
+concentran entre valores moderados, con una mediana cercana a 3 y un
+promedio de 3.23, lo que indica que gran parte de los clientes presentan
+perfiles relativamente similares tras el escalado de variables. Sin
+embargo, la existencia de distancias máximas muy elevadas sugiere la
+presencia de clientes atípicos o perfiles considerablemente distintos
+del resto. Este tipo de distancia es especialmente útil en algoritmos
+basados en proximidad, como KNN, clustering o métodos de reducción de
+dimensionalidad, aunque puede verse afectada por valores extremos y por
+la alta dimensionalidad de los datos.</p>
 </div>
 <div id="distancia-de-manhattan" class="section level2" number="6.2">
 <h2><span class="header-section-number">6.2</span> 6.2 Distancia de
 Manhattan</h2>
+<p>La distancia Manhattan mide la diferencia entre observaciones sumando
+las diferencias absolutas entre cada una de las variables numéricas, en
+lugar de calcular la distancia geométrica directa como ocurre con la
+distancia euclídea. Este enfoque puede interpretarse como la distancia
+recorrida siguiendo una cuadrícula, avanzando únicamente en cada
+dimensión de forma independiente.</p>
 <pre class="r"><code>dist_manhattan &lt;- dist(X_num_sample, method = &quot;manhattan&quot;)
 summary(as.numeric(dist_manhattan))</code></pre>
 <pre><code>##     Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
 ##  0.08131  3.91010  5.56790  5.99214  7.56155 44.74115</code></pre>
+<p>Los resultados muestran valores medios y medianos superiores a los
+obtenidos con la distancia euclídea, lo cual es esperable debido a la
+forma en que se agregan las diferencias entre variables. La mayoría de
+las distancias se concentran en rangos moderados, aunque nuevamente
+aparecen valores máximos elevados que indican la existencia de clientes
+con perfiles muy diferentes al resto del dataset. La distancia Manhattan
+suele ser más robusta frente a valores extremos y puede comportarse
+mejor en espacios de alta dimensionalidad, por lo que resulta útil en
+algoritmos de clustering, KNN y análisis de similitud cuando se desea
+reducir la influencia de grandes desviaciones en variables
+individuales.</p>
 </div>
 <div id="distancia-de-gower-para-variables-mixtas" class="section level2" number="6.3">
 <h2><span class="header-section-number">6.3</span> 6.3 Distancia de
 Gower para variables mixtas</h2>
+<p>La distancia de Gower permite medir similitud entre observaciones
+cuando el dataset contiene simultáneamente variables numéricas y
+categóricas, como ocurre en este caso con variables financieras,
+demográficas y de comportamiento. A diferencia de las distancias
+euclídea y Manhattan, que únicamente se aplicaron sobre variables
+numéricas escaladas, la distancia de Gower combina distintos tipos de
+variables dentro de una misma medida de disimilitud, normalizando
+automáticamente las contribuciones de cada característica. Esto permite
+incorporar información categórica importante, como el tipo de trabajo,
+nivel educativo o tipo de contacto, sin necesidad de transformarlas
+previamente a un espacio completamente numérico.</p>
 <pre class="r"><code>X_mixed_sample &lt;- bank_prep |&gt;
   select(age, job, marital, education, default, balance, housing, loan,
          contact, campaign, previous_contacted, poutcome, deposit) |&gt;
@@ -6687,10 +6730,19 @@ dist_gower &lt;- daisy(X_mixed_sample |&gt; select(-deposit), metric = &quot;gow
 summary(as.numeric(dist_gower))</code></pre>
 <pre><code>##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
 ##  0.0000  0.2709  0.3571  0.3620  0.4447  0.8569</code></pre>
-<p><strong>Interpretación.</strong> La distancia euclídea y Manhattan
-requieren variables numéricas y escaladas. La distancia de Gower es más
-adecuada para datos mixtos, porque combina variables numéricas y
-categóricas de forma más natural.</p>
+<p>Los resultados muestran distancias comprendidas entre 0 y
+aproximadamente 0.86, con una media cercana a 0.36, indicando que la
+mayoría de los clientes presentan un grado moderado de similitud entre
+sí cuando se consideran conjuntamente variables numéricas y categóricas.
+A diferencia de las distancias euclídea y Manhattan, cuyos valores
+podían alcanzar magnitudes muy elevadas debido a la acumulación de
+diferencias numéricas, la distancia de Gower queda acotada en un rango
+mucho más interpretable, facilitando la comparación entre observaciones.
+Este tipo de distancia resulta especialmente útil en datasets
+heterogéneos como el de marketing bancario, ya que preserva la
+información de distintos tipos de variables y suele utilizarse en
+clustering, análisis de similitud y técnicas exploratorias sobre datos
+mixtos.</p>
 </div>
 </div>
 <div id="reglas-de-asociación" class="section level1" number="7">
